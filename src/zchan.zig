@@ -41,7 +41,7 @@ pub fn Chan(comptime DataType: type) type {
             s2s.free(this.allocator, DataType, data_);
         }
 
-        fn _appendTask(this: *Self, task_value_: *const DataType) !void {
+        fn _write(this: *Self, task_value_: *const DataType) !void {
             var tmpbuf = std.ArrayList(u8).init(this.allocator);
             defer tmpbuf.deinit();
 
@@ -67,11 +67,11 @@ pub fn Chan(comptime DataType: type) type {
             this.task_count += 1;
         }
 
-        pub fn appendTask(this: *Self, task_value_: *const DataType) !void {
+        pub fn write(this: *Self, task_value_: *const DataType) !void {
             this.mutex.lock();
             defer this.mutex.unlock();
 
-            try this._appendTask(task_value_);
+            try this._write(task_value_);
 
             const old_task_count = this.task_count;
             while (this.task_count >= old_task_count) {
@@ -79,7 +79,7 @@ pub fn Chan(comptime DataType: type) type {
             }
         }
 
-        fn _popTask(this: *Self) !DataType {
+        fn _read(this: *Self) !DataType {
             var head = this.task_head;
             var json_len: u64 = (@as(u64, @intCast(this.task_buf.items[head])) << 24);
             head += 1;
@@ -103,7 +103,7 @@ pub fn Chan(comptime DataType: type) type {
             return ch_data;
         }
 
-        pub fn popTask(this: *Self) !DataType {
+        pub fn read(this: *Self) !DataType {
             while (true) {
                 if (this.task_count <= 0)
                     continue;
@@ -112,7 +112,7 @@ pub fn Chan(comptime DataType: type) type {
                 defer this.mutex.unlock();
 
                 this.cond.signal();
-                return try this._popTask();
+                return try this._read();
             }
         }
 
@@ -178,10 +178,10 @@ const TestT2 = struct { a: i32, b: i32, c: i32 };
 
 fn testChanFunc(chan: *Chan(TestT2), name: []const u8) anyerror!void {
     std.debug.print("\nstarted thread: {s}!\n", .{name});
-    var t = try chan.popTask();
+    var t = try chan.read();
     defer chan.free(&t);
     std.debug.print("\npoped: {any}\n", .{t});
-    try chan.appendTask(&.{
+    try chan.write(&.{
         .a = t.a,
         .b = t.b,
         .c = t.a + t.b,
@@ -193,16 +193,16 @@ test "_appendTask/_popTask" {
     defer ch.deinit();
     const t1 = .{ .a = 1, .b = "hello" };
     const t2 = .{ .a = 2, .b = "world" };
-    try ch._appendTask(&t1);
-    try ch._appendTask(&t2);
+    try ch._append(&t1);
+    try ch._append(&t2);
     {
-        var t = try ch._popTask();
+        var t = try ch._pop();
         defer ch.free(&t);
         try testing.expectEqual(t.a, 1);
         try testing.expectEqualSlices(u8, t.b, "hello");
     }
     {
-        var t = try ch._popTask();
+        var t = try ch._pop();
         defer ch.free(&t);
         try testing.expectEqual(t.a, 2);
         try testing.expectEqualSlices(u8, t.b, "world");
@@ -214,8 +214,8 @@ test "appendTask/popTask" {
     defer ch.deinit();
     const t1 = .{ .a = 1, .b = 2, .c = 0 };
     _ = try ch.spawn(testChanFunc, .{"tester"});
-    try ch.appendTask(&t1);
-    var t = try ch.popTask();
+    try ch.write(&t1);
+    var t = try ch.read();
     defer ch.free(&t);
     try testing.expectEqual(t.c, 3);
 }

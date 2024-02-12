@@ -2,6 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
 
+// TODO: after async/await/suspend/resume landed https://github.com/ziglang/zig/issues/6025, revisit the scheduler
+
 fn staticCalcMaxWorkerStrategy(comptime limit: usize) anyerror!usize {
     return limit;
 }
@@ -9,8 +11,6 @@ fn staticCalcMaxWorkerStrategy(comptime limit: usize) anyerror!usize {
 fn defaultCalcMaxWorkerStrategy() anyerror!usize {
     return try std.Thread.getCpuCount() / 2;
 }
-
-pub const CalcMaxWorkerStrategy = *const fn () anyerror!usize;
 
 fn defineRoutineMgr(comptime RoutineFnType: type) type {
     const VoidType = @TypeOf(void);
@@ -36,6 +36,7 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
 
     return struct {
         const Self = @This();
+        pub const CalcMaxWorkerStrategy = *const fn () anyerror!usize;
 
         const RoutineQ = std.DoublyLinkedList(RoutineEntry);
         pub const RoutineEntry = struct {
@@ -45,7 +46,9 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
 
         const RoutineMgrThread = struct {
             allocator: std.mem.Allocator,
+            mgr: *Self,
             id: usize,
+            tid: std.Thread.Id = undefined,
             localq: RoutineQ,
             busy: bool = false,
             should_exit: bool = false,
@@ -77,6 +80,7 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
             for (0..this.WORKER_MAX) |i| {
                 this.worker_threads[i] = RoutineMgrThread{
                     .allocator = this.allocator,
+                    .mgr = this,
                     .id = i,
                     .localq = RoutineQ{},
                     .mutex = std.Thread.Mutex{},
@@ -87,16 +91,40 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
             this.worker_threads_initialized = true;
         }
 
+        fn stealq(this: *Self, initiator_id: usize) ?*RoutineQ.Node {
+            std.debug.print("\nsteal from {d}!\n", .{initiator_id});
+            for (0..this.WORKER_MAX) |i| {
+                var fw_ = &this.worker_threads[i];
+                if (fw_.id == initiator_id)
+                    continue;
+                if (!fw_.busy)
+                    continue;
+                fw_.mutex.lock();
+                defer fw_.mutex.unlock();
+                std.debug.print("\nsteal localq len: {d}!\n", .{fw_.localq.len});
+                if (fw_.localq.len == 0)
+                    continue;
+                return fw_.localq.popFirst();
+            }
+            return null;
+        }
+
         fn workerMgrFn(ctx: *RoutineMgrThread) !void {
-            std.debug.print("\nworker start!\n", .{});
+            const id = std.Thread.getCurrentId();
+            std.debug.print("\nworker {any} start!\n", .{id});
+            ctx.tid = id;
             while (true) {
                 ctx.mutex.lock();
                 defer ctx.mutex.unlock();
 
-                if (ctx.localq.len == 0 and !ctx.should_exit)
-                    continue;
+                const maybe_e = brk: {
+                    if (ctx.localq.len == 0 and !ctx.should_exit) {
+                        continue;
+                    }
 
-                const maybe_e = ctx.localq.popFirst();
+                    break :brk ctx.localq.popFirst();
+                };
+
                 if (maybe_e) |entry| {
                     defer ctx.allocator.destroy(entry);
                     ctx.busy = true;
@@ -110,9 +138,20 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
                     ctx.busy = false;
                 }
 
+                if (ctx.localq.len == 0 and !ctx.should_exit) {
+                    // here this thread is free, and should not exit
+                    // try to steal something from other thread to work on
+                    std.debug.print("\ntry steal!\n", .{});
+                    if (ctx.mgr.stealq(ctx.id)) |stealed| {
+                        ctx.localq.append(stealed);
+                        continue;
+                    }
+                }
+
                 if (ctx.localq.len == 0 and ctx.should_exit)
                     break;
             }
+            std.debug.print("\nworker {any} exit!\n", .{id});
         }
 
         fn schedule(this: *Self) usize {
@@ -171,6 +210,7 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
 const TestArgs = union {
     msg: []const u8,
     count: usize,
+    sleep: usize,
 };
 
 fn testRfn1(args: TestArgs) anyerror!void {
@@ -188,5 +228,21 @@ test "simple" {
     _ = try rmgr.spawn(testRfn1, .{ .msg = "hello" });
     _ = try rmgr.spawn(testRfn2, .{ .count = 8 });
     _ = try rmgr.spawn(testRfn2, .{ .count = 18 });
+    rmgr.join();
+}
+
+fn testRfnSleep(args: TestArgs) anyerror!void {
+    std.time.sleep(args.sleep * 1000 * 1000);
+    std.debug.print("\ntestRfn3 from thread: {d}, slept {d} ms\n", .{ std.Thread.getCurrentId(), args.sleep });
+}
+
+test "steal" {
+    const RoutineMgr = defineRoutineMgr(*const fn (args: TestArgs) anyerror!void);
+    var rmgr = RoutineMgr.init(testing.allocator, null);
+    defer rmgr.deinit();
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 1000 });
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
+    std.time.sleep(100 * 1000 * 1000);
     rmgr.join();
 }
