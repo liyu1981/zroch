@@ -8,11 +8,11 @@ fn staticCalcMaxWorkerStrategy(comptime limit: usize) anyerror!usize {
     return limit;
 }
 
-fn defaultCalcMaxWorkerStrategy() anyerror!usize {
+fn halfCpuCountStrategy() anyerror!usize {
     return try std.Thread.getCpuCount() / 2;
 }
 
-fn defineRoutineMgr(comptime RoutineFnType: type) type {
+pub fn defineRoutineMgr(comptime RoutineFnType: type) type {
     const VoidType = @TypeOf(void);
     const RoutineFnArgsType = brk: {
         switch (@typeInfo(RoutineFnType)) {
@@ -66,11 +66,12 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
         pub fn init(allocator: std.mem.Allocator, calc_worker_max_strategy: ?CalcMaxWorkerStrategy) Self {
             return Self{
                 .allocator = allocator,
-                .calc_max_worker_strategy = if (calc_worker_max_strategy) |cwms| cwms else defaultCalcMaxWorkerStrategy,
+                .calc_max_worker_strategy = if (calc_worker_max_strategy) |cwms| cwms else halfCpuCountStrategy,
             };
         }
 
         pub fn deinit(this: *Self) void {
+            // this.worker_threads array is freed when join() finish, do not free again here
             _ = this;
         }
 
@@ -172,7 +173,6 @@ fn defineRoutineMgr(comptime RoutineFnType: type) type {
             }
 
             const i = this.schedule();
-
             var fw_ = &this.worker_threads[i];
             fw_.mutex.lock();
             defer fw_.mutex.unlock();
@@ -231,8 +231,12 @@ test "simple" {
     rmgr.join();
 }
 
+inline fn minis2nanos(minisecond: u64) u64 {
+    return minisecond * 1000 * 1000;
+}
+
 fn testRfnSleep(args: TestArgs) anyerror!void {
-    std.time.sleep(args.sleep * 1000 * 1000);
+    std.time.sleep(minis2nanos(args.sleep));
     std.debug.print("\ntestRfn3 from thread: {d}, slept {d} ms\n", .{ std.Thread.getCurrentId(), args.sleep });
 }
 
@@ -243,6 +247,19 @@ test "steal" {
     _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 1000 });
     _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
     _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
-    std.time.sleep(100 * 1000 * 1000);
+    std.time.sleep(minis2nanos(500));
+    rmgr.join();
+}
+
+test "enqueue while running" {
+    const RoutineMgr = defineRoutineMgr(*const fn (args: TestArgs) anyerror!void);
+    var rmgr = RoutineMgr.init(testing.allocator, null);
+    defer rmgr.deinit();
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 1000 });
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 500 });
+    std.time.sleep(minis2nanos(10));
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
+    _ = try rmgr.spawn(testRfnSleep, .{ .sleep = 50 });
+    std.time.sleep(minis2nanos(600));
     rmgr.join();
 }

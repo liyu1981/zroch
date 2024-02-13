@@ -55,10 +55,10 @@ pub fn Chan(comptime DataType: type) type {
             try s2s.serialize(tmpbuf.writer(), DataType, task_value_.*);
             const serialized_len: u64 = @intCast(tmpbuf.items.len - serialized_start);
 
-            tmpbuf.items[size_start] = @intCast(serialized_len >> 24);
-            tmpbuf.items[size_start + 1] = @intCast(serialized_len >> 16);
-            tmpbuf.items[size_start + 2] = @intCast(serialized_len >> 8);
-            tmpbuf.items[size_start + 3] = @intCast(serialized_len);
+            tmpbuf.items[size_start] = @intCast((serialized_len & 0xff000000) >> 24);
+            tmpbuf.items[size_start + 1] = @intCast((serialized_len & 0x00ff0000) >> 16);
+            tmpbuf.items[size_start + 2] = @intCast((serialized_len & 0x0000ff00) >> 8);
+            tmpbuf.items[size_start + 3] = @intCast(serialized_len & 0x000000ff);
 
             try this.ensureTaskBufIncrementalCapacity(tmpbuf.items.len);
             try this.task_buf.appendSlice(tmpbuf.items);
@@ -105,14 +105,15 @@ pub fn Chan(comptime DataType: type) type {
 
         pub fn read(this: *Self) !DataType {
             while (true) {
-                if (this.task_count <= 0)
-                    continue;
-
                 this.mutex.lock();
                 defer this.mutex.unlock();
 
+                if (this.task_count <= 0)
+                    continue;
+
+                const r = try this._read();
                 this.cond.signal();
-                return try this._read();
+                return r;
             }
         }
 
@@ -188,7 +189,7 @@ fn testChanFunc(chan: *Chan(TestT2), name: []const u8) anyerror!void {
     });
 }
 
-test "_appendTask/_popTask" {
+test "_write/_read" {
     var ch = try makeChan(TestT1, testing.allocator);
     defer ch.deinit();
     const t1 = .{ .a = 1, .b = "hello" };
@@ -209,7 +210,7 @@ test "_appendTask/_popTask" {
     }
 }
 
-test "appendTask/popTask" {
+test "write/read" {
     var ch = try makeChan(TestT2, testing.allocator);
     defer ch.deinit();
     const t1 = .{ .a = 1, .b = 2, .c = 0 };
