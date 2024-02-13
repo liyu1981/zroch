@@ -13,4 +13,12 @@ pub fn build(b: *std.Build) void {
     _ = b.addModule("zchan", .{
         .source_file = .{ .path = "src/zchan.zig" },
     });
+
+    _ = b.addModule("zroch", .{
+        .source_file = .{ .path = "src/zroch.zig" },
+    });
+
+    _ = b.addModule("typeop", .{
+        .source_file = .{ .path = "src/typeop.zig" },
+    });
 }

@@ -1,18 +1,13 @@
 .{
     .name = "zroch",
     .version = "0.0.0",
-    .dependencies = .{
-        .zcmd = .{
-            .url = "../zcmd",
-            .hash = "12209fe3d0f679803afcee96cf61e2ee9b24c736268c91fad0e4f07ddd1f4f6c89cd",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "",
-        //"build.zig",
-        //"build.zig.zon",
-        //"src",
+        "build.zig",
+        "build.zig.zon",
+        "src",
         //"LICENSE",
-        //"README.md",
+        "README.md",
     },
 }
