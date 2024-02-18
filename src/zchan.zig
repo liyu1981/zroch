@@ -194,16 +194,16 @@ test "_write/_read" {
     defer ch.deinit();
     const t1 = .{ .a = 1, .b = "hello" };
     const t2 = .{ .a = 2, .b = "world" };
-    try ch._append(&t1);
-    try ch._append(&t2);
+    try ch._write(&t1);
+    try ch._write(&t2);
     {
-        var t = try ch._pop();
+        var t = try ch._read();
         defer ch.free(&t);
         try testing.expectEqual(t.a, 1);
         try testing.expectEqualSlices(u8, t.b, "hello");
     }
     {
-        var t = try ch._pop();
+        var t = try ch._read();
         defer ch.free(&t);
         try testing.expectEqual(t.a, 2);
         try testing.expectEqualSlices(u8, t.b, "world");
@@ -221,31 +221,31 @@ test "write/read" {
     try testing.expectEqual(t.c, 3);
 }
 
-fn testNoParam() anyerror!void {}
+// fn testNoParam() anyerror!void {}
 
-test "compileError: testNoParam" {
-    var ch = try makeChan(TestT2, testing.allocator);
-    defer ch.deinit();
-    _ = try ch.spawn(testNoParam, .{});
-}
+// test "compileError: testNoParam" {
+//     var ch = try makeChan(TestT2, testing.allocator);
+//     defer ch.deinit();
+//     _ = try ch.spawn(testNoParam, .{});
+// }
 
-fn testFirstParamWrong(chan: usize) anyerror!void {
-    _ = chan;
-}
+// fn testFirstParamWrong(chan: usize) anyerror!void {
+//     _ = chan;
+// }
 
-test "compileError: testFirstParamWrong" {
-    var ch = try makeChan(TestT2, testing.allocator);
-    defer ch.deinit();
-    _ = try ch.spawn(testFirstParamWrong, .{1});
-}
+// test "compileError: testFirstParamWrong" {
+//     var ch = try makeChan(TestT2, testing.allocator);
+//     defer ch.deinit();
+//     _ = try ch.spawn(testFirstParamWrong, .{1});
+// }
 
-fn testReturnIsWrong(chan: *Chan(TestT2)) anyerror!usize {
-    _ = chan;
-    return 0;
-}
+// fn testReturnIsWrong(chan: *Chan(TestT2)) anyerror!usize {
+//     _ = chan;
+//     return 0;
+// }
 
-test "compileError: testReturnIsWrong" {
-    var ch = try makeChan(TestT2, testing.allocator);
-    defer ch.deinit();
-    _ = try ch.spawn(testReturnIsWrong, .{});
-}
+// test "compileError: testReturnIsWrong" {
+//     var ch = try makeChan(TestT2, testing.allocator);
+//     defer ch.deinit();
+//     _ = try ch.spawn(testReturnIsWrong, .{});
+// }

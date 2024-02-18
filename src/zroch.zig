@@ -5,7 +5,7 @@ const testing = std.testing;
 const builtin = std.builtin;
 const typeop = @import("typeop.zig");
 
-fn defineZorch(comptime ChanDataType: type, comptime RoutineArgsType: type) type {
+fn defineZroch(comptime ChanDataType: type, comptime RoutineArgsType: type) type {
     const StubRoutineFnType = @typeInfo(*const fn () anyerror!void).Pointer.child;
 
     const ChanType = zchan.Chan(ChanDataType);
@@ -43,7 +43,7 @@ fn defineZorch(comptime ChanDataType: type, comptime RoutineArgsType: type) type
 
 // all tests
 
-const SumZorch = defineZorch(i32, struct {});
+const SumZorch = defineZroch(i32, struct {});
 
 fn sumIntZorch(args: SumZorch.RoutineFnArgs) anyerror!void {
     var sum: i32 = 0;
@@ -73,9 +73,9 @@ test "sum_zroch" {
     z.join();
 }
 
-const HttpReqZorch = defineZorch([]const u8, struct { url: []const u8 });
+const HttpReqZroch = defineZroch([]const u8, struct { url: []const u8 });
 
-fn httpReqZorch(args: HttpReqZorch.RoutineFnArgs) anyerror!void {
+fn httpReqZroch(args: HttpReqZroch.RoutineFnArgs) anyerror!void {
     const allocator = testing.allocator;
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -91,9 +91,9 @@ fn httpReqZorch(args: HttpReqZorch.RoutineFnArgs) anyerror!void {
 }
 
 test "http_zroch" {
-    var z = try HttpReqZorch.init(testing.allocator);
+    var z = try HttpReqZroch.init(testing.allocator);
     defer z.deinit();
-    _ = try z.rmgr.spawn(httpReqZorch, .{ .chan = &z.ch, .url = "https://ziglang.org/" });
+    _ = try z.rmgr.spawn(httpReqZroch, .{ .chan = &z.ch, .url = "https://ziglang.org/" });
     const body = try z.ch.read();
     std.debug.print("\nGot: {s} ... ({d}) bytes\n", .{ body[0..32], body.len });
     defer z.ch.allocator.free(body);
